@@ -3,6 +3,10 @@ name: Build Pool Aim APK
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - "PoolAimAssistant-Android-Kotlin-CI.zip"
+      - ".github/workflows/build-apk.yml"
 
 permissions:
   contents: read
@@ -10,28 +14,57 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Find project ZIP
+      - name: Find and inspect project ZIP
         shell: bash
         run: |
           set -eu
 
-          echo "Repository files:"
+          echo "=== Repository root ==="
+          pwd
           ls -la
 
-          ZIP_FILE="PoolAimAssistant-Android-Kotlin-CI.zip"
+          ZIP_FILE=""
 
-          if [ ! -f "$ZIP_FILE" ]; then
-            echo "Searching for ZIP files..."
-            find . -type f -iname "*.zip" -print
+          if [ -f "PoolAimAssistant-Android-Kotlin-CI.zip" ]; then
+            ZIP_FILE="PoolAimAssistant-Android-Kotlin-CI.zip"
+          else
+            ZIP_FILE=$(find . -type f -iname "*.zip" \
+              -not -path "./.git/*" -print -quit || true)
+          fi
 
-            echo "::error::Expected ZIP not found at repository root."
+          if [ -z "$ZIP_FILE" ]; then
+            echo "::error::No ZIP file found in the repository."
             exit 1
           fi
 
-          echo "ZIP found: $ZIP_FILE"
-          echo "ZIP contents:"
+          echo "=== ZIP found: $ZIP_FILE ==="
+          echo "=== ZIP contents (first 100 entries) ==="
           unzip -Z1 "$ZIP_FILE" | head -n 100
+
+          mkdir -p "$RUNNER_TEMP/pool-project"
+          unzip -q "$ZIP_FILE" -d "$RUNNER_TEMP/pool-project"
+
+          echo "=== Gradle files ==="
+          find "$RUNNER_TEMP/pool-project" -type f \
+            \( -name "settings.gradle" \
+            -o -name "settings.gradle.kts" \
+            -o -name "build.gradle" \
+            -o -name "build.gradle.kts" \
+            -o -name "gradlew" \
+            -o -name "gradle-wrapper.properties" \
+            -o -name "libs.versions.toml" \) \
+            -print
+
+          echo "=== Android app modules ==="
+          find "$RUNNER_TEMP/pool-project" -type f \
+            \( -path "*/app/build.gradle" \
+            -o -path "*/app/build.gradle.kts" \) \
+            -print
+
+          echo "=== Diagnosis complete ==="
+
