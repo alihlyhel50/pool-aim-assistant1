@@ -75,7 +75,45 @@ jobs:
           echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
           echo "Found project: $PROJECT_DIR"
 
-      - name: Build APK
+      
+      - name: Diagnose Android ZIP
+        shell: bash
+        run: |
+          set -e
+
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: ZIP file not found"
+            exit 1
+          fi
+
+          echo "=== ZIP CONTENTS ==="
+          unzip -Z1 "$ZIP_FILE" | head -n 100
+
+          echo "=== GRADLE CONFIG FILES ==="
+          mkdir -p /tmp/pool-diagnose
+          unzip -q "$ZIP_FILE" -d /tmp/pool-diagnose
+
+          find /tmp/pool-diagnose -type f \
+            \( -name "settings.gradle" \
+            -o -name "settings.gradle.kts" \
+            -o -name "build.gradle" \
+            -o -name "build.gradle.kts" \
+            -o -name "libs.versions.toml" \
+            -o -name "gradle-wrapper.properties" \) \
+            -print
+
+          echo "=== PLUGIN VERSION REFERENCES ==="
+          grep -R -n -E \
+            'com.android.application|com.android.tools.build:gradle|distributionUrl' \
+            /tmp/pool-diagnose \
+            --include="*.gradle" \
+            --include="*.gradle.kts" \
+            --include="*.toml" \
+            --include="*.properties" \
+            || true
+- name: Build APK
         working-directory: ${{ steps.project.outputs.dir }}
         shell: bash
         run: |
