@@ -4,23 +4,34 @@ name: Build Pool Aim APK
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   diagnose:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check project ZIP
+      - name: Find project ZIP
         shell: bash
         run: |
           set -eu
-          ZIP="PoolAimAssistant-Android-Kotlin-CI.zip"
-          if [ ! -f "$ZIP" ]; then
-            echo "Project ZIP not found"
+
+          echo "Repository files:"
+          ls -la
+
+          ZIP_FILE="PoolAimAssistant-Android-Kotlin-CI.zip"
+
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "Searching for ZIP files..."
+            find . -type f -iname "*.zip" -print
+
+            echo "::error::Expected ZIP not found at repository root."
             exit 1
           fi
-          echo "ZIP found"
-          unzip -Z1 "$ZIP" | head -n 80
 
-
+          echo "ZIP found: $ZIP_FILE"
+          echo "ZIP contents:"
+          unzip -Z1 "$ZIP_FILE" | head -n 100
