@@ -3,100 +3,24 @@ name: Build Pool Aim APK
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "PoolAimAssistant-Android-Kotlin-CI.zip"
-      - ".github/workflows/build-apk.yml"
-
-permissions:
-  contents: read
 
 jobs:
-  build:
+  diagnose:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Extract and inspect project
-        id: project
+      - name: Check project ZIP
         shell: bash
         run: |
-          set -euo pipefail
-
+          set -eu
           ZIP="PoolAimAssistant-Android-Kotlin-CI.zip"
-
           if [ ! -f "$ZIP" ]; then
-            echo "::error::Project ZIP not found in repository root."
+            echo "Project ZIP not found"
             exit 1
           fi
-
-          mkdir -p "$GITHUB_WORKSPACE/android-project"
-          unzip -q "$ZIP" -d "$GITHUB_WORKSPACE/android-project"
-
-          SETTINGS=$(find "$GITHUB_WORKSPACE/android-project" \
-            -type f \
-            \( -name settings.gradle -o -name settings.gradle.kts \) \
-            -print -quit)
-
-          if [ -z "$SETTINGS" ]; then
-            echo "::error::No settings.gradle or settings.gradle.kts found in ZIP."
-            echo "ZIP contents:"
-            unzip -Z1 "$ZIP" | head -n 100
-            exit 1
-          fi
-
-          PROJECT_DIR=$(dirname "$SETTINGS")
-
-          if [ ! -f "$PROJECT_DIR/app/build.gradle" ] && \
-             [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
-            echo "::error::Android app Gradle file not found."
-            find "$PROJECT_DIR" -maxdepth 3 -type f | head -n 100
-            exit 1
-          fi
-
-          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-          echo "Project found: $PROJECT_DIR"
-
-          echo "Gradle configuration files:"
-          find "$PROJECT_DIR" -type f \
-            \( -name "*.gradle" -o -name "*.gradle.kts" \
-            -o -name "libs.versions.toml" \
-            -o -name "gradle-wrapper.properties" \) \
-            -print
-
-      - name: Build APK
-        working-directory: ${{ steps.project.outputs.dir }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [ -f gradlew ]; then
-            chmod +x gradlew
-            ./gradlew assembleDebug
-          elif [ -f gradle/wrapper/gradle-wrapper.properties ]; then
-            echo "::error::Gradle wrapper properties exist, but gradlew is missing."
-            exit 1
-          else
-            echo "::error::Gradle wrapper is missing. Project configuration must be inspected to choose a compatible Gradle version."
-            exit 1
-          fi
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Pool-Aim-Assistant-APK
-          path: ${{ steps.project.outputs.dir }}/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
+          echo "ZIP found"
+          unzip -Z1 "$ZIP" | head -n 80
 
 
