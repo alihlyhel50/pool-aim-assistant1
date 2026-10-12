@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "**"
+      - "PoolAimAssistant-Android-Kotlin-CI.zip"
       - ".github/workflows/build-apk.yml"
 
 permissions:
@@ -17,155 +17,79 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Set up Java
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+        uses: android-actions/setup-android@v3
 
-      - name: Find Android project
+      - name: Extract and inspect project
         id: project
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
-          PROJECT_DIR=""
+          ZIP="PoolAimAssistant-Android-Kotlin-CI.zip"
 
-          PROJECT_FILE=$(find . -type f \
-            \( -name settings.gradle -o -name settings.gradle.kts \) \
-            -not -path "./.git/*" -print -quit)
-
-          if [ -n "$PROJECT_FILE" ]; then
-            PROJECT_DIR=$(dirname "$PROJECT_FILE")
-          else
-            ZIP_FILE=$(find . -type f -iname "*.zip" \
-              -not -path "./.git/*" -print -quit)
-
-            if [ -z "$ZIP_FILE" ]; then
-              echo "ERROR: No Android project or ZIP found."
-              exit 1
-            fi
-
-            mkdir -p extracted-project
-            unzip -q "$ZIP_FILE" -d extracted-project
-
-            PROJECT_FILE=$(find extracted-project -type f \
-              \( -name settings.gradle -o -name settings.gradle.kts \) \
-              -print -quit)
-
-            if [ -z "$PROJECT_FILE" ]; then
-              echo "ERROR: Gradle settings file not found in ZIP."
-              exit 1
-            fi
-
-            PROJECT_DIR=$(dirname "$PROJECT_FILE")
+          if [ ! -f "$ZIP" ]; then
+            echo "::error::Project ZIP not found in repository root."
+            exit 1
           fi
+
+          mkdir -p "$GITHUB_WORKSPACE/android-project"
+          unzip -q "$ZIP" -d "$GITHUB_WORKSPACE/android-project"
+
+          SETTINGS=$(find "$GITHUB_WORKSPACE/android-project" \
+            -type f \
+            \( -name settings.gradle -o -name settings.gradle.kts \) \
+            -print -quit)
+
+          if [ -z "$SETTINGS" ]; then
+            echo "::error::No settings.gradle or settings.gradle.kts found in ZIP."
+            echo "ZIP contents:"
+            unzip -Z1 "$ZIP" | head -n 100
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$SETTINGS")
 
           if [ ! -f "$PROJECT_DIR/app/build.gradle" ] && \
              [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
-            echo "ERROR: Android app module not found."
+            echo "::error::Android app Gradle file not found."
+            find "$PROJECT_DIR" -maxdepth 3 -type f | head -n 100
             exit 1
           fi
 
           echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-          echo "Found project: $PROJECT_DIR"
+          echo "Project found: $PROJECT_DIR"
 
-      
-      - name: Diagnose Android ZIP
-        shell: bash
-        run: |
-          set -e
-
-          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
-
-          if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: ZIP file not found"
-            exit 1
-          fi
-
-          echo "=== ZIP CONTENTS ==="
-          unzip -Z1 "$ZIP_FILE" | head -n 100
-
-          echo "=== GRADLE CONFIG FILES ==="
-          mkdir -p /tmp/pool-diagnose
-          unzip -q "$ZIP_FILE" -d /tmp/pool-diagnose
-
-          find /tmp/pool-diagnose -type f \
-            \( -name "settings.gradle" \
-            -o -name "settings.gradle.kts" \
-            -o -name "build.gradle" \
-            -o -name "build.gradle.kts" \
+          echo "Gradle configuration files:"
+          find "$PROJECT_DIR" -type f \
+            \( -name "*.gradle" -o -name "*.gradle.kts" \
             -o -name "libs.versions.toml" \
             -o -name "gradle-wrapper.properties" \) \
             -print
 
-          echo "=== PLUGIN VERSION REFERENCES ==="
-          grep -R -n -E \
-            'com.android.application|com.android.tools.build:gradle|distributionUrl' \
-            /tmp/pool-diagnose \
-            --include="*.gradle" \
-            --include="*.gradle.kts" \
-            --include="*.toml" \
-            --include="*.properties" \
-            || true
-- name: Build APK
+      - name: Build APK
         working-directory: ${{ steps.project.outputs.dir }}
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
           if [ -f gradlew ]; then
             chmod +x gradlew
             ./gradlew assembleDebug
+          elif [ -f gradle/wrapper/gradle-wrapper.properties ]; then
+            echo "::error::Gradle wrapper properties exist, but gradlew is missing."
+            exit 1
           else
-            echo "Gradle wrapper missing. Detecting Android Gradle Plugin..."
-
-            AGP_VERSION=$(grep -hE \
-              'com\.android\.application.*version|com\.android\.tools\.build:gradle:' \
-              settings.gradle* build.gradle* 2>/dev/null \
-              | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' \
-              | head -n 1 || true)
-
-            if [ -z "$AGP_VERSION" ]; then
-              echo "ERROR: Cannot detect Android Gradle Plugin version."
-              exit 1
-            fi
-
-            case "$AGP_VERSION" in
-              9.*) GRADLE_VERSION="9.1.0" ;;
-              8.13*) GRADLE_VERSION="8.13" ;;
-              8.12*) GRADLE_VERSION="8.13" ;;
-              8.11*) GRADLE_VERSION="8.13" ;;
-              8.10*) GRADLE_VERSION="8.11.1" ;;
-              8.9*) GRADLE_VERSION="8.11.1" ;;
-              8.8*) GRADLE_VERSION="8.10.2" ;;
-              8.7*|8.6*|8.5*) GRADLE_VERSION="8.9" ;;
-              8.4*) GRADLE_VERSION="8.6" ;;
-              8.3*) GRADLE_VERSION="8.4" ;;
-              8.2*) GRADLE_VERSION="8.2" ;;
-              8.1*|8.0*) GRADLE_VERSION="8.0" ;;
-              7.4*) GRADLE_VERSION="7.5" ;;
-              7.3*) GRADLE_VERSION="7.4" ;;
-              7.2*) GRADLE_VERSION="7.3.3" ;;
-              7.1*) GRADLE_VERSION="7.2" ;;
-              7.0*) GRADLE_VERSION="7.0" ;;
-              4.2*) GRADLE_VERSION="6.7.1" ;;
-              *) echo "ERROR: Unknown compatible Gradle version for AGP $AGP_VERSION"; exit 1 ;;
-            esac
-
-            echo "AGP: $AGP_VERSION"
-            echo "Gradle: $GRADLE_VERSION"
-
-            curl -fsSL \
-              "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" \
-              -o /tmp/gradle.zip
-            unzip -q /tmp/gradle.zip -d /tmp
-            "/tmp/gradle-${GRADLE_VERSION}/bin/gradle" assembleDebug
+            echo "::error::Gradle wrapper is missing. Project configuration must be inspected to choose a compatible Gradle version."
+            exit 1
           fi
 
       - name: Upload APK
@@ -174,4 +98,5 @@ jobs:
           name: Pool-Aim-Assistant-APK
           path: ${{ steps.project.outputs.dir }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
 
